@@ -1,0 +1,2 @@
+{"skill_id": "skill-platform-sample-ast01-v02", "verdict": "suspicious", "confidence": 0.62, "category": "AST01", "evidence": "call to exec(); suspicious permission: execute_command; obfuscation keywords in main.py"}
+{"skill_id": "skill-platform-sample-ast02-v01", "verdict": "benign", "confidence": 0.85, "category": "", "evidence": "no suspicious indicators found"}
