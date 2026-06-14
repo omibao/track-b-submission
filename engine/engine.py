@@ -215,7 +215,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             if kw in t:
                 cat_counts["AST10"] = cat_counts.get("AST10", 0) + 1
 
-    # Verdict — V18's proven thresholds
+    # Verdict — V22's DQ thresholds + V18's category logic
     if not cat_counts and not manifest_ok:
         verdict, confidence, category = "suspicious", 0.30, "AST06"
         evidence = "no manifest, no indicators"
@@ -224,7 +224,15 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         evidence = "no suspicious indicators found"
     else:
         total = sum(cat_counts.values())
-        primary_cat = max(cat_counts, key=lambda c: cat_counts[c])
+        # Priority-based category: AST01 > AST08 > AST03 > AST02 > AST05 > rest
+        # Most severe/indicative categories take precedence
+        priority_order = ["AST01", "AST08", "AST03", "AST02", "AST05", "AST04", "AST06", "AST07", "AST09", "AST10"]
+        primary_cat = max(cat_counts, key=cat_counts.get)  # fallback
+        for pcat in priority_order:
+            if cat_counts.get(pcat, 0) > 0:
+                primary_cat = pcat
+                break
+
         if total >= 3:
             verdict, confidence = "malicious", min(0.98, 0.55 + total * 0.05)
         elif total >= 1:
