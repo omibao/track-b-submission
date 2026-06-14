@@ -109,8 +109,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         ast02_kws = [
             "credential", "api_key", "auth_token", "id_rsa", ".aws/",
             "keychain", "keyring", ".netrc", "authorization:",
-            "access_key", "secret_key", "private_key", "token=",
-            "password=", "passwd", "secret=",
+            "access_key", "secret_key", "private_key",
         ]
         for kw in ast02_kws:
             if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
@@ -141,8 +140,8 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
 
         ast06_kws = [
             "verify=false", "debug=true", "ssl._create_unverified",
-            "check_hostname=false", "password=", "secret=",
-            "api_key=", "allow_origin=*",
+            "check_hostname=false", "allow_origin=*", "debug = true",
+            "flask_env=development", "node_env=development",
         ]
         for kw in ast06_kws:
             if kw in t: cat_counts["AST06"] = cat_counts.get("AST06", 0) + 1
@@ -194,6 +193,20 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             "chmod(", "chown(", "symlink(", "mkfifo(",
             # Config tampering
             "apt-get install", "yum install", "brew install",
+            # Windows living-off-the-land
+            "regsvr32", "rundll32", "mshta ", "certutil -",
+            "wmic ", "cscript", "wscript",
+            # Linux stealth
+            "ld_preload", "proxychains", "/dev/tcp",
+            # Obfuscation
+            "fromcharcode", "string.fromcharcode",
+            "atob(", "btoa(",
+            # Persistence
+            "launchctl", "launchd", "systemd",
+            # Credential dumping
+            "mimikatz", "procdump", "lsass",
+            # Exfiltration
+            "ngrok", "serveo", "burpcollaborator",
         ]
         for kw in detect_boost_kws:
             if kw in t: detect_count += 1
