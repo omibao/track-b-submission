@@ -74,6 +74,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
     try: entries = list(sd.rglob("*"))
     except Exception: entries = []
 
+    detect_count = 0
     count = 0
     for fp in entries:
         if count >= MAX_FILES_PER_SKILL: break
@@ -174,21 +175,43 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         for kw in ast10_kws:
             if kw in t: cat_counts["AST10"] = cat_counts.get("AST10", 0) + 1
 
-    # Verdict + Priority category (V23 proven)
-    if not cat_counts and not manifest_ok:
+        # === Detection-only keywords (verdict boost, no category impact) ===
+        detect_boost_kws = [
+            # Process execution variants
+            "os.execv", "os.execve", "os.execvp", "os.execvpe",
+            "posix_spawn", "ptrace(", "process_vm_",
+            # Dynamic code generation
+            "types.codetype", "types.functiontype",
+            # Indirect execution
+            "getattr(__builtins__", "getattr(__import__",
+            # Network exfil
+            "socket.gethostbyname(", "scapy.", "paramiko.",
+            # Data collection
+            "readlines()", "writelines(",
+            # Encoding/decoding for evasion
+            "codecs.decode(", "zlib.decompress(", "bz2.decompress(",
+            # File manipulation
+            "chmod(", "chown(", "symlink(", "mkfifo(",
+            # Config tampering
+            "apt-get install", "yum install", "brew install",
+        ]
+        for kw in detect_boost_kws:
+            if kw in t: detect_count += 1
+
+    # Verdict: use cat_counts + detect_count. Category: use cat_counts only
+    total_cat = sum(cat_counts.values())
+    total_all = total_cat + detect_count
+
+    if not cat_counts and not manifest_ok and detect_count == 0:
         verdict, confidence, category = "suspicious", 0.30, "AST06"
         evidence = "no manifest, no indicators"
-    elif not cat_counts:
+    elif not cat_counts and detect_count == 0:
         verdict, confidence, category = "benign", 0.70, ""
         evidence = "no suspicious indicators found"
     else:
-        total = sum(cat_counts.values())
-        priority_order = ["AST01", "AST03", "AST08", "AST02", "AST05", "AST04", "AST06", "AST07", "AST09", "AST10"]
+        total = total_all
+        # V30: pure count-based category (V18 proven EX=0.65 with this approach)
         primary_cat = max(cat_counts, key=cat_counts.get)
-        for pcat in priority_order:
-            if cat_counts.get(pcat, 0) > 0:
-                primary_cat = pcat
-                break
 
         if total >= 3: verdict, confidence = "malicious", min(0.98, 0.55 + total * 0.05)
         elif total >= 1: verdict, confidence = "malicious", 0.55
