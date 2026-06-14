@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Track B V27 — Minimal keyword set (V18 proven) + Semgrep AST01 only + priority category."""
+"""Track B V32 — Split detection (broad keywords) from classification (definitive keywords only)."""
 import json, os
-from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -11,8 +10,7 @@ MAX_TEXT_SCAN = 80_000
 
 
 def safe_read(fp: Path) -> str:
-    try:
-        raw = fp.read_bytes()
+    try: raw = fp.read_bytes()
     except Exception: return ""
     if not raw: return ""
     if len(raw) > MAX_FILE_BYTES: raw = raw[:MAX_FILE_BYTES]
@@ -39,11 +37,113 @@ KNOWN_FILENAMES = {
 }
 
 
+# ── Definitive classification keywords (non-overlapping, high-confidence) ──
+# These are used ONLY for category assignment. Must be unambiguous.
+CLASSIFY = {
+    "AST01": [
+        "os.system", "os.popen", "subprocess.", "eval(", "exec(",
+        "child_process.exec", "shell_exec", "__import__(",
+        "runtime.getruntime", "shellexecute", "createprocess",
+        "shell=true", "code.interactiveconsole",
+        "commands.getoutput", "commands.getstatusoutput",
+    ],
+    "AST02": [
+        "id_rsa", "id_ed25519", "id_ecdsa", ".aws/credentials",
+        "keychain", "keyring", ".netrc",
+        "authorization: bearer",
+    ],
+    "AST03": [
+        "169.254.169.254", "metadata.google.internal",
+        "webhook", "exfiltrat", "keylog",
+        "botnet", "c2", "ransomware",
+    ],
+    "AST04": [
+        "<!entity", "<!doctype", "xml.etree", "lxml",
+    ],
+    "AST05": [
+        "setuid", "setgid", "docker.sock", "containerd.sock",
+        "rootkit", "nsenter", "authorized_keys",
+        "systemctl enable",
+    ],
+    "AST06": [
+        "verify=false", "ssl._create_unverified",
+        "check_hostname=false",
+        "allow_origin=*",
+    ],
+    "AST07": [
+        "innerhtml", "document.write", "dangerouslysetinnerhtml",
+        "bypasssecuritytrust",
+    ],
+    "AST08": [
+        "pickle.load", "yaml.load", "marshal.load",
+        "dill.load", "deserialize", "unserialize",
+    ],
+    "AST09": [
+        "typosquat", "colourama", "requets",
+        "git+https://", "egg=https://",
+    ],
+    "AST10": [
+        "logging.disable", "logging.shutdown",
+        "histfile=/dev/null", "history -c",
+    ],
+}
+
+# ── Detection-only keywords (contribute to verdict, NOT to category) ──
+DETECT_ONLY = [
+    # Execution
+    "os.execv", "os.execvp", "posix_spawn", "ctypes.",
+    "process.spawn", "new function(", "vm.runinnewcontext",
+    "globals()", "locals()", "importlib.import_module(",
+    "compile(", "execfile(", "dangerouslysetinnerhtml",
+    # Credential access
+    "credential", "api_key", "auth_token", ".aws/",
+    "access_key", "secret_key", "private_key",
+    "password=", "passwd", "token=", "secret=",
+    # Exfiltration / Network
+    "requests.post", "requests.put", "urllib.request",
+    "socket.connect", "socket.send", "smtp", "ftp",
+    "curl ", "wget ", "sendbeacon", "100.100.100.200",
+    # System recon
+    "/etc/passwd", "/etc/shadow", "/etc/hosts",
+    "env >", "/proc/", "hostname >", "getent",
+    # Persistence
+    "sudo ", "chmod ", "crontab", "bashrc", "chown ",
+    "launchctl", "launchd", "systemd",
+    # Config issues
+    "debug=true", "debug = true",
+    "flask_env=development", "node_env=development",
+    "password=", "secret=", "api_key=",
+    # XSS
+    "v-html", "mark_safe", "outerhtml", "insertadjacenthtml",
+    # Deserialization
+    "jsonpickle", "shelve.open", "readobject", "readresolve",
+    # Dependencies
+    "dependency=http",
+    # Log tampering
+    "shutil.rmtree", "history -w", "truncate log", "wipe log",
+    # Living-off-the-land
+    "regsvr32", "rundll32", "mshta ", "certutil -",
+    "wmic ", "ld_preload", "/dev/tcp",
+    # Obfuscation
+    "fromcharcode", "atob(", "btoa(",
+    "codecs.decode(", "zlib.decompress(",
+    # Cloud/Infra
+    "kubectl", "kubernetes", "docker ",
+    # Generic malicious
+    "backdoor", "payload", "exploit", "reverse shell",
+    "obfuscat", "cryptomin", "keylog",
+    "mimikatz", "procdump", "lsass",
+    "ngrok", "serveo", "burpcollaborator",
+]
+
+
 def scan_skill(sd: Path) -> Dict[str, Any]:
     sid = sd.name
+    detect_total = 0
     cat_counts: Dict[str, int] = {}
     all_e: List[str] = []
 
+    # Manifest analysis
     mp = sd / "manifest.json"
     manifest_ok = False
     if mp.is_file():
@@ -61,6 +161,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                             "network", "admin", "sudo", "root", "all", "*",
                             "write", "delete", "process", "spawn", "fork",
                         }:
+                            detect_total += 1
                             cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
                             all_e.append(f"dangerous permission: {p}")
                 for field in ("url", "homepage", "repository", "endpoint"):
@@ -68,13 +169,14 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                     for h in ["pastebin", "webhook", "ngrok", "discord", "telegram",
                                "transfer.sh", "file.io", "0x0.st"]:
                         if h in val.lower():
+                            detect_total += 1
                             cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
             except Exception: pass
 
+    # Scan files
     try: entries = list(sd.rglob("*"))
     except Exception: entries = []
 
-    detect_count = 0
     count = 0
     for fp in entries:
         if count >= MAX_FILES_PER_SKILL: break
@@ -90,152 +192,50 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         count += 1
         t = text[:MAX_TEXT_SCAN].lower()
 
-        # Proven V18 keywords + high-confidence Semgrep AST01 additions only
-        ast01_kws = [
-            "os.system", "os.popen", "subprocess.", "eval(", "exec(",
-            "child_process.exec", "shell_exec", "popen", "__import__(",
-            "ctypes.", "process.spawn", "new function(", "runtime.getruntime",
-            "shellexecute", "createprocess", "vm.runinnewcontext",
-            "dangerouslysetinnerhtml",
-            # High-confidence Semgrep AST01 additions:
-            "shell=true", "code.interactiveconsole", "code.interactiveinterpreter",
-            "globals()", "locals()",
-            "importlib.import_module(", "compile(", "execfile(",
-            "commands.getoutput", "commands.getstatusoutput",
-        ]
-        for kw in ast01_kws:
-            if kw in t: cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1
+        # Classification keywords → contribute to BOTH category and detection
+        for cat, kws in CLASSIFY.items():
+            for kw in kws:
+                if kw in t:
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                    detect_total += 1
 
-        ast02_kws = [
-            "credential", "api_key", "auth_token", "id_rsa", ".aws/",
-            "keychain", "keyring", ".netrc", "authorization:",
-            "access_key", "secret_key", "private_key",
-        ]
-        for kw in ast02_kws:
-            if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
+        # Detection-only keywords → contribute ONLY to detection
+        for kw in DETECT_ONLY:
+            if kw in t:
+                detect_total += 1
 
-        ast03_kws = [
-            "requests.post", "requests.put", "requests.send",
-            "urllib.request", "socket.connect", "socket.send",
-            "smtp", "ftp", "webhook", "curl ", "wget ",
-            "exfiltrat", "keylog", "169.254.169.254",
-            "metadata.google.internal", "100.100.100.200",
-            "/etc/passwd", "/etc/shadow", "/etc/hosts",
-            "env >", "/proc/", "sendbeacon",
-        ]
-        for kw in ast03_kws:
-            if kw in t: cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
-
-        ast04_kws = ["xml.etree", "lxml", "<!entity", "<!doctype", "ssrf"]
-        for kw in ast04_kws:
-            if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
-
-        ast05_kws = [
-            "sudo ", "chmod ", "setuid", "setgid", "docker.sock",
-            "containerd.sock", "rootkit", "crontab", "authorized_keys",
-            "systemctl enable", "nsenter", "cap_sys", "chown ",
-        ]
-        for kw in ast05_kws:
-            if kw in t: cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
-
-        ast06_kws = [
-            "verify=false", "debug=true", "ssl._create_unverified",
-            "check_hostname=false", "allow_origin=*", "debug = true",
-            "flask_env=development", "node_env=development",
-        ]
-        for kw in ast06_kws:
-            if kw in t: cat_counts["AST06"] = cat_counts.get("AST06", 0) + 1
-
-        ast07_kws = [
-            "innerhtml", "document.write", "dangerouslysetinnerhtml",
-            "bypasssecuritytrust", "v-html", "mark_safe",
-        ]
-        for kw in ast07_kws:
-            if kw in t: cat_counts["AST07"] = cat_counts.get("AST07", 0) + 1
-
-        ast08_kws = [
-            "pickle.load", "pickle.dump", "yaml.load", "marshal.load",
-            "dill.load", "deserialize", "unserialize", "jsonpickle",
-        ]
-        for kw in ast08_kws:
-            if kw in t: cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
-
-        ast09_kws = [
-            "typosquat", "colourama", "requets", "git+https://",
-            "egg=https://", "dependency=http",
-        ]
-        for kw in ast09_kws:
-            if kw in t: cat_counts["AST09"] = cat_counts.get("AST09", 0) + 1
-
-        ast10_kws = [
-            "logging.disable", "logging.shutdown", "shutil.rmtree",
-            "histfile=/dev/null", "history -c",
-        ]
-        for kw in ast10_kws:
-            if kw in t: cat_counts["AST10"] = cat_counts.get("AST10", 0) + 1
-
-        # === Detection-only keywords (verdict boost, no category impact) ===
-        detect_boost_kws = [
-            # Process execution variants
-            "os.execv", "os.execve", "os.execvp", "os.execvpe",
-            "posix_spawn", "ptrace(", "process_vm_",
-            # Dynamic code generation
-            "types.codetype", "types.functiontype",
-            # Indirect execution
-            "getattr(__builtins__", "getattr(__import__",
-            # Network exfil
-            "socket.gethostbyname(", "scapy.", "paramiko.",
-            # Data collection
-            "readlines()", "writelines(",
-            # Encoding/decoding for evasion
-            "codecs.decode(", "zlib.decompress(", "bz2.decompress(",
-            # File manipulation
-            "chmod(", "chown(", "symlink(", "mkfifo(",
-            # Config tampering
-            "apt-get install", "yum install", "brew install",
-            # Windows living-off-the-land
-            "regsvr32", "rundll32", "mshta ", "certutil -",
-            "wmic ", "cscript", "wscript",
-            # Linux stealth
-            "ld_preload", "proxychains", "/dev/tcp",
-            # Obfuscation
-            "fromcharcode", "string.fromcharcode",
-            "atob(", "btoa(",
-            # Persistence
-            "launchctl", "launchd", "systemd",
-            # Credential dumping
-            "mimikatz", "procdump", "lsass",
-            # Exfiltration
-            "ngrok", "serveo", "burpcollaborator",
-        ]
-        for kw in detect_boost_kws:
-            if kw in t: detect_count += 1
-
-    # Verdict: use cat_counts + detect_count. Category: use cat_counts only
-    total_cat = sum(cat_counts.values())
-    total_all = total_cat + detect_count
-
-    if not cat_counts and not manifest_ok and detect_count == 0:
-        verdict, confidence, category = "suspicious", 0.30, "AST06"
-        evidence = "no manifest, no indicators"
-    elif not cat_counts and detect_count == 0:
-        verdict, confidence, category = "benign", 0.70, ""
-        evidence = "no suspicious indicators found"
+    # Verdict (uses detect_total) + Category (uses cat_counts with priority)
+    if detect_total == 0 and not manifest_ok:
+        v, cf, cat = "suspicious", 0.30, "AST06"
+        ev = "no manifest, no indicators"
+    elif detect_total == 0:
+        v, cf, cat = "benign", 0.70, ""
+        ev = "no suspicious indicators found"
     else:
-        total = total_all
-        # V30: pure count-based category (V18 proven EX=0.65 with this approach)
-        primary_cat = max(cat_counts, key=cat_counts.get)
+        # Category: use ONLY classify keywords with AST01 priority
+        if cat_counts:
+            for pcat in ["AST01", "AST08", "AST03", "AST02", "AST05",
+                          "AST04", "AST06", "AST07", "AST09", "AST10"]:
+                if cat_counts.get(pcat, 0) > 0:
+                    cat = pcat
+                    break
+            else:
+                cat = max(cat_counts, key=cat_counts.get)
+        else:
+            cat = "AST01"  # default when detection-only keywords fire
 
-        if total >= 3: verdict, confidence = "malicious", min(0.98, 0.55 + total * 0.05)
-        elif total >= 1: verdict, confidence = "malicious", 0.55
-        else: verdict, confidence = "suspicious", 0.40
-        category = primary_cat
-        evidence = "; ".join(all_e[:3]) if all_e else f"{total} indicators, primary={primary_cat}"
+        if detect_total >= 3:
+            v, cf = "malicious", min(0.98, 0.55 + detect_total * 0.05)
+        elif detect_total >= 1:
+            v, cf = "malicious", 0.55
+        else:
+            v, cf = "suspicious", 0.40
+        ev = "; ".join(all_e[:3]) if all_e else f"{detect_total} indicators, cat={cat}"
 
     return {
-        "skill_id": sid, "verdict": verdict,
-        "confidence": round(confidence, 2),
-        "category": category, "evidence": evidence[:500],
+        "skill_id": sid, "verdict": v,
+        "confidence": round(cf, 2),
+        "category": cat, "evidence": ev[:500],
     }
 
 
