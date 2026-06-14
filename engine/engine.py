@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
-"""Track B V32 — Split detection (broad keywords) from classification (definitive keywords only)."""
-import json, os
+"""Track B V33 — Keywords + entropy + attack chains. All extra signals detection-only."""
+import json, math, os
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
 MAX_FILE_BYTES = 120_000
 MAX_FILES_PER_SKILL = 60
 MAX_TEXT_SCAN = 80_000
+
+
+def entropy(s: str) -> float:
+    if not s: return 0.0
+    n = len(s)
+    counts = Counter(s)
+    try: return -sum((c/n) * math.log2(c/n) for c in counts.values())
+    except: return 0.0
 
 
 def safe_read(fp: Path) -> str:
@@ -203,6 +212,59 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         for kw in DETECT_ONLY:
             if kw in t:
                 detect_total += 1
+
+    # ── Entropy analysis (detection boost for obfuscated code) ──
+    try:
+        for fp in entries:
+            if not fp.is_file() or fp.is_symlink(): continue
+            ext = fp.suffix.lower()
+            if ext not in TEXT_EXTS and fp.name.lower() not in KNOWN_FILENAMES: continue
+            text = safe_read(fp)
+            if len(text) > 200:
+                e = entropy(text[:20000])
+                if e > 5.5:
+                    detect_total += 2  # Very high entropy = likely obfuscated
+                    all_e.append(f"high entropy ({e:.1f})")
+                    break
+                elif e > 5.0:
+                    detect_total += 1
+    except Exception: pass
+
+    # ── Attack chain heuristics (detection boost for behavior combos) ──
+    try:
+        chain_text = " ".join(all_e).lower()
+
+        # Exfiltration chain: read sensitive + encode + package
+        if any(kw in chain_text for kw in ["/etc/", "passwd", "hosts", "env.dat", "ssh", "credential"]):
+            if any(kw in chain_text for kw in ["base64", "encode", "b64", "chunk"]):
+                if any(kw in chain_text for kw in ["tar ", "zip ", "bundle", "archive", "split "]):
+                    detect_total += 3
+                    all_e.append("exfil chain: read+encode+package")
+
+        # Persistence chain: shell config + download
+        if any(kw in chain_text for kw in ["bashrc", "profile", "cron"]):
+            if any(kw in chain_text for kw in ["curl", "wget", "download", "fetch"]):
+                detect_total += 3
+                all_e.append("persistence chain: shell+download")
+
+        # Code exec + obfuscation chain
+        if any(kw in chain_text for kw in ["eval", "exec", "system", "subprocess"]):
+            if any(kw in chain_text for kw in ["base64", "decode", "deobfuscat", "rot13", "xor", "fromhex"]):
+                detect_total += 3
+                all_e.append("obfuscated exec chain")
+
+        # Recon + exfil chain
+        if any(kw in chain_text for kw in ["passwd", "hosts", "env", "hostname", "whoami"]):
+            if any(kw in chain_text for kw in ["post", "send", "upload", "http", "socket", "smtp", "webhook"]):
+                detect_total += 3
+                all_e.append("recon+exfil chain")
+
+        # Permission combo: execute + network + filesystem
+        perm_text = " ".join(all_e)
+        perms_found = sum(1 for p in ["execute", "shell", "network", "file_system", "filesystem"] if p in perm_text)
+        if perms_found >= 3:
+            detect_total += 2
+    except Exception: pass
 
     # Verdict (uses detect_total) + Category (uses cat_counts with priority)
     if detect_total == 0 and not manifest_ok:
