@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Track B V22 — V18 baseline + public Semgrep/OWASP detection patterns."""
+"""Track B V27 — Minimal keyword set (V18 proven) + Semgrep AST01 only + priority category."""
 import json, os
 from collections import Counter
 from pathlib import Path
@@ -13,8 +13,7 @@ MAX_TEXT_SCAN = 80_000
 def safe_read(fp: Path) -> str:
     try:
         raw = fp.read_bytes()
-    except Exception:
-        return ""
+    except Exception: return ""
     if not raw: return ""
     if len(raw) > MAX_FILE_BYTES: raw = raw[:MAX_FILE_BYTES]
     if b"\x00" in raw[:512]: return ""
@@ -45,7 +44,6 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
     cat_counts: Dict[str, int] = {}
     all_e: List[str] = []
 
-    # Manifest analysis
     mp = sd / "manifest.json"
     manifest_ok = False
     if mp.is_file():
@@ -71,15 +69,10 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                                "transfer.sh", "file.io", "0x0.st"]:
                         if h in val.lower():
                             cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
-                            all_e.append(f"suspicious URL: {h}")
-            except Exception:
-                pass
+            except Exception: pass
 
-    # Scan files
-    try:
-        entries = list(sd.rglob("*"))
-    except Exception:
-        entries = []
+    try: entries = list(sd.rglob("*"))
+    except Exception: entries = []
 
     count = 0
     for fp in entries:
@@ -96,31 +89,22 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         count += 1
         t = text[:MAX_TEXT_SCAN].lower()
 
-        # === Detection Patterns ===
-        # Sources: OWASP, Semgrep rules, apiiro/malicious-code-ruleset, custom research
-
-        # AST01: Command/Code Injection
+        # Proven V18 keywords + high-confidence Semgrep AST01 additions only
         ast01_kws = [
             "os.system", "os.popen", "subprocess.", "eval(", "exec(",
             "child_process.exec", "shell_exec", "popen", "__import__(",
             "ctypes.", "process.spawn", "new function(", "runtime.getruntime",
             "shellexecute", "createprocess", "vm.runinnewcontext",
-            # From Semgrep research:
-            "shell=true", "shell = true",  # subprocess shell injection
-            "code.interactiveconsole", "code.interactiveinterpreter",  # dangerous code run
-            "globals()", "locals()",  # dynamic function resolution
-            "get_type_hints(",  # dangerous annotations
-            "logging.config.listen",  # eval risk in logging
-            "importlib.import_module(",  # dynamic imports
-            "compile(",  # dynamic compilation
-            "execfile(",  # python2 exec
-            "commands.getoutput", "commands.getstatusoutput",  # legacy
+            "dangerouslysetinnerhtml",
+            # High-confidence Semgrep AST01 additions:
+            "shell=true", "code.interactiveconsole", "code.interactiveinterpreter",
+            "globals()", "locals()",
+            "importlib.import_module(", "compile(", "execfile(",
+            "commands.getoutput", "commands.getstatusoutput",
         ]
         for kw in ast01_kws:
-            if kw in t:
-                cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1
+            if kw in t: cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1
 
-        # AST02: Credential Theft
         ast02_kws = [
             "credential", "api_key", "auth_token", "id_rsa", ".aws/",
             "keychain", "keyring", ".netrc", "authorization:",
@@ -128,10 +112,8 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             "password=", "passwd", "secret=",
         ]
         for kw in ast02_kws:
-            if kw in t:
-                cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
+            if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
 
-        # AST03: Data Exfiltration
         ast03_kws = [
             "requests.post", "requests.put", "requests.send",
             "urllib.request", "socket.connect", "socket.send",
@@ -142,80 +124,57 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             "env >", "/proc/", "sendbeacon",
         ]
         for kw in ast03_kws:
-            if kw in t:
-                cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
+            if kw in t: cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
 
-        # AST04: SSRF/XXE
-        ast04_kws = [
-            "xml.etree", "lxml", "<!entity", "<!doctype", "ssrf",
-            "resolve_entity", "load_external",
-        ]
+        ast04_kws = ["xml.etree", "lxml", "<!entity", "<!doctype", "ssrf"]
         for kw in ast04_kws:
-            if kw in t:
-                cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
+            if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
 
-        # AST05: Privilege Escalation
         ast05_kws = [
             "sudo ", "chmod ", "setuid", "setgid", "docker.sock",
             "containerd.sock", "rootkit", "crontab", "authorized_keys",
             "systemctl enable", "nsenter", "cap_sys", "chown ",
-            "privilege", "escape", "sandbox",
         ]
         for kw in ast05_kws:
-            if kw in t:
-                cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
+            if kw in t: cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
 
-        # AST06: Security Misconfiguration
         ast06_kws = [
             "verify=false", "debug=true", "ssl._create_unverified",
             "check_hostname=false", "password=", "secret=",
-            "api_key=", "allow_origin=*", "debug = true",
-            "flask_env=development", "node_env=development",
+            "api_key=", "allow_origin=*",
         ]
         for kw in ast06_kws:
-            if kw in t:
-                cat_counts["AST06"] = cat_counts.get("AST06", 0) + 1
+            if kw in t: cat_counts["AST06"] = cat_counts.get("AST06", 0) + 1
 
-        # AST07: XSS/HTML Injection
         ast07_kws = [
             "innerhtml", "document.write", "dangerouslysetinnerhtml",
             "bypasssecuritytrust", "v-html", "mark_safe",
-            "outerhtml", "insertadjacenthtml",
         ]
         for kw in ast07_kws:
-            if kw in t:
-                cat_counts["AST07"] = cat_counts.get("AST07", 0) + 1
+            if kw in t: cat_counts["AST07"] = cat_counts.get("AST07", 0) + 1
 
-        # AST08: Insecure Deserialization
         ast08_kws = [
             "pickle.load", "pickle.dump", "yaml.load", "marshal.load",
             "dill.load", "deserialize", "unserialize", "jsonpickle",
-            "shelve.open", "readobject", "readresolve",
         ]
         for kw in ast08_kws:
-            if kw in t:
-                cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
+            if kw in t: cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
 
-        # AST09: Vulnerable Dependencies
         ast09_kws = [
             "typosquat", "colourama", "requets", "git+https://",
             "egg=https://", "dependency=http",
         ]
         for kw in ast09_kws:
-            if kw in t:
-                cat_counts["AST09"] = cat_counts.get("AST09", 0) + 1
+            if kw in t: cat_counts["AST09"] = cat_counts.get("AST09", 0) + 1
 
-        # AST10: Log/History Tampering
         ast10_kws = [
             "logging.disable", "logging.shutdown", "shutil.rmtree",
-            "histfile=/dev/null", "history -c", "history -w",
-            "truncate log", "wipe log", "clear log",
+            "histfile=/dev/null", "history -c",
         ]
         for kw in ast10_kws:
-            if kw in t:
-                cat_counts["AST10"] = cat_counts.get("AST10", 0) + 1
+            if kw in t: cat_counts["AST10"] = cat_counts.get("AST10", 0) + 1
 
-    # Verdict — V22's DQ thresholds + V18's category logic
+    # Verdict + Priority category (V23 proven)
     if not cat_counts and not manifest_ok:
         verdict, confidence, category = "suspicious", 0.30, "AST06"
         evidence = "no manifest, no indicators"
@@ -224,21 +183,16 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         evidence = "no suspicious indicators found"
     else:
         total = sum(cat_counts.values())
-        # Priority-based category: AST01 > AST08 > AST03 > AST02 > AST05 > rest
-        # Most severe/indicative categories take precedence
-        priority_order = ["AST01", "AST08", "AST03", "AST02", "AST05", "AST04", "AST06", "AST07", "AST09", "AST10"]
-        primary_cat = max(cat_counts, key=cat_counts.get)  # fallback
+        priority_order = ["AST01", "AST03", "AST08", "AST02", "AST05", "AST04", "AST06", "AST07", "AST09", "AST10"]
+        primary_cat = max(cat_counts, key=cat_counts.get)
         for pcat in priority_order:
             if cat_counts.get(pcat, 0) > 0:
                 primary_cat = pcat
                 break
 
-        if total >= 3:
-            verdict, confidence = "malicious", min(0.98, 0.55 + total * 0.05)
-        elif total >= 1:
-            verdict, confidence = "malicious", 0.55
-        else:
-            verdict, confidence = "suspicious", 0.40
+        if total >= 3: verdict, confidence = "malicious", min(0.98, 0.55 + total * 0.05)
+        elif total >= 1: verdict, confidence = "malicious", 0.55
+        else: verdict, confidence = "suspicious", 0.40
         category = primary_cat
         evidence = "; ".join(all_e[:3]) if all_e else f"{total} indicators, primary={primary_cat}"
 
