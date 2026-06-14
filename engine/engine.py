@@ -13,6 +13,8 @@ AST08: Poor Scanning (obfuscation, encoding, pattern bypass)
 AST09: No Governance (missing manifest, no inventory)
 AST10: Cross-Platform Reuse (multi-ecosystem attack patterns)
 
+V35: + skill-scan 93 rules (prompt injection, execution, exfil, obfuscation, agent manipulation)
+
 Architecture: CLASSIFY keywords → category only. DETECT_ONLY → verdict only.
 """
 import json, math, os
@@ -179,6 +181,43 @@ DETECT_ONLY = [
     # Suspicious file ops
     "writelines(", "readlines(",
     "chmod(", "symlink(", "mkfifo(",
+    # ── skill-scan PI (Prompt Injection) patterns ──
+    "ignore previous instructions", "ignore all previous",
+    "disregard prior", "forget your training",
+    "you are now", "new persona", "do anything now",
+    "jailbreak", "developer mode", "override instructions",
+    "system prompt", "reveal your instructions",
+    "do not refuse", "no restrictions",
+    "hidden message", "secret instruction",
+    "​", "‌", "‍", "‎", "‏",  # zero-width chars
+    "‮", "‭", "⁦", "⁧", "⁨", "⁩",  # bidi
+    # ── skill-scan EXEC patterns ──
+    "curl | bash", "curl | sh", "wget | bash",
+    "pip install", "npm install -g",
+    "powershell -enc", "powershell -e ",
+    "iex(", "invoke-expression", "invoke-webrequest",
+    "start-process", "new-object net.webclient",
+    # ── skill-scan EXFIL patterns ──
+    "~/.ssh/", "~/.aws/", "/root/.ssh",
+    "browser password", "keychain dump",
+    "discord webhook", "slack webhook", "telegram bot",
+    # ── skill-scan OBFS patterns ──
+    "rot13", "rot_13", "maketrans",
+    "%25", "percent encoded",
+    "unicode_escape", "\\u00",
+    # ── skill-scan TOOL patterns ──
+    "rm -rf /", "rm -rf ~", "rm -rf .",
+    "mkfs.", "dd if=/dev/zero",
+    "/dev/sda", "/dev/nvme",
+    # ── skill-scan AGENT patterns ──
+    "ssh-keygen", "write to ~/", "append to ~/",
+    "modify your", "change your config",
+    "exfiltrate the", "send the data", "upload the file",
+    # ── skill-scan SC patterns ──
+    "curl -sL http", "wget -q http",
+    "unpinned", "version latest",
+    "path traversal", "../", "absolute path",
+    "clickfix", "click fix", "setup required",
 ]
 
 
