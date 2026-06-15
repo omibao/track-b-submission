@@ -348,7 +348,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         v, cf, cat = "benign", 0.70, ""
         ev = "no suspicious indicators found"
     else:
-        # Category: V27's AST01-first priority with corrected names
+        # Category: priority ordering (V36 proven EX=0.85)
         if cat_counts:
             for pcat in ["AST01", "AST05", "AST02", "AST03", "AST04",
                           "AST06", "AST08", "AST07", "AST09", "AST10"]:
