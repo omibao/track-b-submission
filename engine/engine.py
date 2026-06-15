@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Track B V36 — V27's proven DQ engine + corrected OWASP AST10 category mappings + skill-scan patterns."""
+"""Track B V37 — V36 + multilingual prompt injection + more PI/exfil/exec patterns."""
 import json, math, os
 from collections import Counter
 from pathlib import Path
@@ -202,6 +202,28 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             "exfiltrate the", "send the data", "upload the file",
             "curl -sL http", "wget -q http",
             "unpinned", "path traversal", "clickfix", "click fix",
+            # ── Multilingual PI (skill-scan PI-001-xx through PI-003-xx) ──
+            "ignorieren sie", "vorherige anweisungen",  # German
+            "ignora las instrucciones", "ignorar anteriores",  # Spanish
+            "ignore les instructions", "ignorer précédentes",  # French
+            "以前の指示を無視", "以前の命令を",  # Japanese
+            "이전 지침을 무시", "이전 명령을",  # Korean
+            "игнорируй предыдущие", "игнорируй инструкции",  # Russian
+            "忽略之前的指令", "忽略前面的指示", "无视上述",  # Chinese
+            "تجاهل التعليمات", "تجاهل السابقة",  # Arabic
+            # ── More exfil patterns ──
+            "send the result", "post the data", "exfiltrate this",
+            "copy the output", "capture the response",
+            "environment variable", "printenv", "set | grep",
+            "~/.bash_history", "~/.zsh_history", "~/.mysql_history",
+            # ── More exec patterns ──
+            "nohup ", "disown", "bg %", "screen -",
+            "tmux new", "byobu",
+            "python -c ", "python3 -c ", "perl -e ",
+            "ruby -e ", "lua -e ",
+            # ── More AST04 metadata patterns ──
+            "skillin.md", "skill.json", "package.json",
+            "manifest.yml", "clawhub", "openclaw",
         ]:
             if kw in t: detect_extra += 1
 
