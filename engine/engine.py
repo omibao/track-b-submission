@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""
-Track B V34 — Corrected OWASP Agentic Skills Top 10 category mappings.
-
-AST01: Malicious Skills (hidden payloads, backdoors, stealers)
-AST02: Supply Chain Compromise (typosquatting, poisoned deps)
-AST03: Over-Privileged Skills (excessive permissions, credential leakage)
-AST04: Insecure Metadata (manifest manipulation, impersonation)
-AST05: Unsafe Deserialization (pickle/yaml/marshal loads)
-AST06: Weak Isolation (no sandbox, docker sock, host mode)
-AST07: Update Drift (unpinned versions, no hash verification)
-AST08: Poor Scanning (obfuscation, encoding, pattern bypass)
-AST09: No Governance (missing manifest, no inventory)
-AST10: Cross-Platform Reuse (multi-ecosystem attack patterns)
-
-V35: + skill-scan 93 rules (prompt injection, execution, exfil, obfuscation, agent manipulation)
-
-Architecture: CLASSIFY keywords → category only. DETECT_ONLY → verdict only.
-"""
+"""Track B V36 — V27's proven DQ engine + corrected OWASP AST10 category mappings + skill-scan patterns."""
 import json, math, os
 from collections import Counter
 from pathlib import Path
@@ -41,9 +24,8 @@ def safe_read(fp: Path) -> str:
 
 def entropy(s: str) -> float:
     if not s: return 0.0
-    n = len(s)
-    counts = Counter(s)
-    try: return -sum((c/n) * math.log2(c/n) for c in counts.values())
+    n = len(s); counts = Counter(s)
+    try: return -sum((c/n)*math.log2(c/n) for c in counts.values())
     except: return 0.0
 
 
@@ -60,186 +42,24 @@ TEXT_EXTS = {
 KNOWN_FILENAMES = {
     "makefile", "dockerfile", "jenkinsfile", "gemfile", "rakefile",
     ".gitignore", ".dockerignore", ".npmrc", ".env.example",
-    "skill.md", "skillin.md", "manifest.json", "memory.md", "soul.md",
+    "skill.md", "skillin.md", "memory.md", "soul.md",
 }
-
-
-# ── CLASSIFY: definitive keywords → category only, zero overlap ──
-# Each keyword maps to EXACTLY ONE AST category. No keyword appears twice.
-CLASSIFY = {
-    # AST01: Malicious Skills — hidden payloads, backdoors, stealers, reverse shells
-    "AST01": [
-        "os.system(", "os.popen(", "subprocess.", "eval(", "exec(",
-        "child_process.exec", "shell_exec", "__import__(",
-        "runtime.getruntime", "shellexecute", "createprocess",
-        "commands.getoutput", "commands.getstatusoutput",
-        "reverse shell", "backdoor", "payload", "trojan",
-    ],
-    # AST02: Supply Chain — typosquatting, poisoned deps, registry attacks
-    "AST02": [
-        "typosquat", "colourama", "requets", "coloramma",
-        "git+https://", "egg=https://",
-    ],
-    # AST03: Over-Privileged — excessive permissions, credential leakage
-    "AST03": [
-        "execute_command", "run_shell", "shell_access",
-        "file_system", "full_access", "all_access",
-        "network_access", "unrestricted",
-    ],
-    # AST04: Insecure Metadata — manifest manipulation, impersonation
-    "AST04": [
-        "pastebin.com", "hastebin.com", "ghostbin.com",
-        "discord.com/api/webhooks", "hooks.slack.com",
-        "api.telegram.org", "webhook.site", "requestbin",
-        "ngrok.io", "transfer.sh", "file.io", "0x0.st",
-    ],
-    # AST05: Unsafe Deserialization — pickle/yaml/marshal loads
-    "AST05": [
-        "pickle.load", "yaml.load(", "marshal.load",
-        "dill.load", "deserialize", "unserialize", "jsonpickle",
-    ],
-    # AST06: Weak Isolation — no sandbox, docker sock, host mode
-    "AST06": [
-        "docker.sock", "containerd.sock",
-        "--privileged", "host network",
-    ],
-    # AST07: Update Drift — unpinned versions, no hash verification
-    "AST07": [
-        # Detected via manifest version patterns (handled in manifest analysis)
-    ],
-    # AST08: Poor Scanning — obfuscation, encoding, pattern bypass
-    "AST08": [
-        "base64.b64decode", "base64.b64encode",
-        "codecs.decode(", "zlib.decompress(",
-        "fromhex", "unhexlify",
-        "rot13", "deobfuscat",
-    ],
-    # AST09: No Governance — missing manifest, no inventory
-    "AST09": [
-        # Detected via missing manifest (handled in verdict logic)
-    ],
-    # AST10: Cross-Platform Reuse — multi-ecosystem patterns
-    "AST10": [
-        "openclaw", "clawhub", "skills.sh",
-        "claude code", "cursor ai",
-    ],
-}
-
-# ── DETECT_ONLY: broad keywords → verdict detection only, no category impact ──
-DETECT_ONLY = [
-    # Code execution
-    "os.execv", "os.execvp", "posix_spawn", "ctypes.",
-    "process.spawn", "new function(", "vm.runinnewcontext",
-    "globals()", "locals()", "importlib.import_module(",
-    "compile(", "execfile(", "dangerouslysetinnerhtml",
-    "shell=true", "code.interactiveconsole",
-    # Credential access / exfiltration
-    "credential", "api_key", "auth_token", ".aws/",
-    "access_key", "secret_key", "private_key",
-    "password=", "passwd", "token=", "secret=",
-    "keychain", "keyring", ".netrc",
-    "id_rsa", "id_ed25519", "id_ecdsa",
-    # Network exfiltration
-    "requests.post", "requests.put", "urllib.request",
-    "socket.connect", "socket.send", "smtp", "ftp",
-    "curl ", "wget ", "sendbeacon",
-    "169.254.169.254", "metadata.google.internal", "100.100.100.200",
-    # System recon
-    "/etc/passwd", "/etc/shadow", "/etc/hosts",
-    "env >", "/proc/", "hostname >", "getent",
-    # Persistence
-    "sudo ", "chmod ", "crontab", "bashrc", "chown ",
-    "launchctl", "launchd", "systemd", "systemctl enable",
-    "authorized_keys",
-    # Config issues
-    "debug=true", "debug = true", "verify=false",
-    "ssl._create_unverified", "check_hostname=false",
-    "flask_env=development", "node_env=development",
-    "allow_origin=*",
-    # XSS / HTML
-    "innerhtml", "document.write", "mark_safe",
-    "v-html", "bypasssecuritytrust",
-    # Log tampering
-    "shutil.rmtree", "history -c", "history -w",
-    "histfile=/dev/null", "logging.disable", "logging.shutdown",
-    # Living-off-the-land
-    "regsvr32", "rundll32", "mshta ", "certutil -",
-    "wmic ", "ld_preload", "/dev/tcp",
-    # Obfuscation
-    "fromcharcode", "atob(", "btoa(",
-    # Cloud/Infra
-    "kubectl", "kubernetes", "docker ",
-    "setuid", "setgid", "nsenter",
-    # Generic malicious
-    "obfuscat", "cryptomin", "keylog",
-    "mimikatz", "procdump", "lsass",
-    "ngrok", "serveo", "burpcollaborator",
-    "exfiltrat", "botnet", "ransomware",
-    # Dependency/CI
-    "dependency=http", "gitlab-ci.yml",
-    ".github/workflows",
-    # Suspicious file ops
-    "writelines(", "readlines(",
-    "chmod(", "symlink(", "mkfifo(",
-    # ── skill-scan PI (Prompt Injection) patterns ──
-    "ignore previous instructions", "ignore all previous",
-    "disregard prior", "forget your training",
-    "you are now", "new persona", "do anything now",
-    "jailbreak", "developer mode", "override instructions",
-    "system prompt", "reveal your instructions",
-    "do not refuse", "no restrictions",
-    "hidden message", "secret instruction",
-    "​", "‌", "‍", "‎", "‏",  # zero-width chars
-    "‮", "‭", "⁦", "⁧", "⁨", "⁩",  # bidi
-    # ── skill-scan EXEC patterns ──
-    "curl | bash", "curl | sh", "wget | bash",
-    "pip install", "npm install -g",
-    "powershell -enc", "powershell -e ",
-    "iex(", "invoke-expression", "invoke-webrequest",
-    "start-process", "new-object net.webclient",
-    # ── skill-scan EXFIL patterns ──
-    "~/.ssh/", "~/.aws/", "/root/.ssh",
-    "browser password", "keychain dump",
-    "discord webhook", "slack webhook", "telegram bot",
-    # ── skill-scan OBFS patterns ──
-    "rot13", "rot_13", "maketrans",
-    "%25", "percent encoded",
-    "unicode_escape", "\\u00",
-    # ── skill-scan TOOL patterns ──
-    "rm -rf /", "rm -rf ~", "rm -rf .",
-    "mkfs.", "dd if=/dev/zero",
-    "/dev/sda", "/dev/nvme",
-    # ── skill-scan AGENT patterns ──
-    "ssh-keygen", "write to ~/", "append to ~/",
-    "modify your", "change your config",
-    "exfiltrate the", "send the data", "upload the file",
-    # ── skill-scan SC patterns ──
-    "curl -sL http", "wget -q http",
-    "unpinned", "version latest",
-    "path traversal", "../", "absolute path",
-    "clickfix", "click fix", "setup required",
-]
 
 
 def scan_skill(sd: Path) -> Dict[str, Any]:
     sid = sd.name
-    detect_total = 0
     cat_counts: Dict[str, int] = {}
     all_e: List[str] = []
-    manifest_text = ""
+    detect_extra = 0  # detection-only signals
 
-    # ── Manifest analysis ──
+    # Manifest
     mp = sd / "manifest.json"
     manifest_ok = False
     if mp.is_file():
         mt = safe_read(mp)
         if mt:
-            manifest_text = mt
             try:
-                m = json.loads(mt)
-                manifest_ok = True
-
-                # AST03: Over-privileged permissions
+                m = json.loads(mt); manifest_ok = True
                 perms = m.get("permissions", [])
                 if isinstance(perms, list):
                     for p in perms:
@@ -250,41 +70,28 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                             "write", "delete", "process", "spawn", "fork",
                             "full_access", "unlimited", "unrestricted",
                         }:
-                            detect_total += 2
                             cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
                             all_e.append(f"over-privileged: {p}")
-
-                # AST04: Insecure metadata — suspicious URLs
-                for field in ("url", "homepage", "repository", "endpoint", "description"):
+                for field in ("url", "homepage", "repository", "endpoint"):
                     val = str(m.get(field, ""))
-                    for h in CLASSIFY.get("AST04", []):
+                    for h in ["pastebin", "webhook", "ngrok", "discord", "telegram",
+                               "transfer.sh", "file.io", "0x0.st"]:
                         if h in val.lower():
-                            detect_total += 2
                             cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
                             all_e.append(f"suspicious metadata: {h}")
-
-                # AST07: Unpinned versions
+                # AST07: unpinned deps
                 deps = m.get("dependencies", {})
                 if isinstance(deps, dict):
-                    for name, ver in deps.items():
-                        if isinstance(ver, str) and ("latest" in ver.lower() or "*" in ver or ">" in ver):
-                            detect_total += 1
+                    for n, v in deps.items():
+                        if isinstance(v, str) and ("latest" in v.lower() or "*" in v or ">" in v):
                             cat_counts["AST07"] = cat_counts.get("AST07", 0) + 1
-
-                # AST09: Missing critical metadata fields
-                if not m.get("version"): detect_total += 1
-                if not m.get("description"): detect_total += 1
-                if detect_total >= 2 and not m.get("version"):
-                    cat_counts["AST09"] = cat_counts.get("AST09", 0) + 1
-
             except Exception: pass
     else:
-        # No manifest = AST09 governance issue
-        detect_total += 3
+        detect_extra += 3
         cat_counts["AST09"] = cat_counts.get("AST09", 0) + 1
-        all_e.append("missing manifest.json")
+        all_e.append("missing manifest")
 
-    # ── Scan code files ──
+    # Scan files
     try: entries = list(sd.rglob("*"))
     except Exception: entries = []
 
@@ -294,8 +101,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         try:
             if not fp.is_file() or fp.is_symlink(): continue
         except Exception: continue
-        if fp.name.startswith("."): continue
-        if fp.name == "manifest.json": continue  # already processed
+        if fp.name.startswith(".") or fp.name == "manifest.json": continue
         ext = fp.suffix.lower()
         if ext not in TEXT_EXTS and fp.name.lower() not in KNOWN_FILENAMES: continue
 
@@ -304,19 +110,102 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         count += 1
         t = text[:MAX_TEXT_SCAN].lower()
 
-        # CLASSIFY keywords → BOTH detection and category
-        for cat, kws in CLASSIFY.items():
-            for kw in kws:
-                if kw in t:
-                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
-                    detect_total += 1
+        # V27's proven keyword set, mapped to CORRECT OWASP AST10 categories
+        for kw in [
+            "os.system", "os.popen", "subprocess.", "eval(", "exec(",
+            "child_process.exec", "shell_exec", "__import__(",
+            "ctypes.", "process.spawn", "new function(", "runtime.getruntime",
+            "shellexecute", "createprocess", "vm.runinnewcontext",
+            "shell=true", "code.interactiveconsole", "code.interactiveinterpreter",
+            "globals()", "locals()", "importlib.import_module(",
+            "compile(", "execfile(", "commands.getoutput", "commands.getstatusoutput",
+            "dangerouslysetinnerhtml",
+        ]:
+            if kw in t: cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1
 
-        # DETECT_ONLY keywords → detection only
-        for kw in DETECT_ONLY:
-            if kw in t:
-                detect_total += 1
+        for kw in [
+            "credential", "api_key", "auth_token", "id_rsa", ".aws/",
+            "keychain", "keyring", ".netrc", "authorization:",
+            "access_key", "secret_key", "private_key",
+        ]:
+            if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
 
-    # ── Entropy analysis (detection boost for AST08 obfuscation) ──
+        for kw in [
+            "requests.post", "requests.put", "requests.send",
+            "urllib.request", "socket.connect", "socket.send",
+            "smtp", "ftp", "webhook", "curl ", "wget ",
+            "exfiltrat", "keylog", "169.254.169.254",
+            "metadata.google.internal", "100.100.100.200",
+            "/etc/passwd", "/etc/shadow", "/etc/hosts",
+            "env >", "/proc/", "sendbeacon",
+        ]:
+            if kw in t: cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1  # payloads
+
+        for kw in ["xml.etree", "lxml", "<!entity", "<!doctype", "ssrf"]:
+            if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
+
+        for kw in [
+            "sudo ", "chmod ", "setuid", "setgid", "docker.sock",
+            "containerd.sock", "rootkit", "crontab", "authorized_keys",
+            "systemctl enable", "nsenter", "cap_sys", "chown ",
+        ]:
+            if kw in t: cat_counts["AST06"] = cat_counts.get("AST06", 0) + 1
+
+        for kw in [
+            "verify=false", "debug=true", "ssl._create_unverified",
+            "check_hostname=false", "allow_origin=*", "password=",
+            "secret=", "api_key=", "token=",
+        ]:
+            if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
+
+        for kw in [
+            "innerhtml", "document.write", "dangerouslysetinnerhtml",
+            "bypasssecuritytrust", "v-html", "mark_safe",
+        ]:
+            if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
+
+        for kw in [
+            "pickle.load", "pickle.dump", "yaml.load", "marshal.load",
+            "dill.load", "deserialize", "unserialize", "jsonpickle",
+        ]:
+            if kw in t: cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
+
+        for kw in [
+            "typosquat", "colourama", "requets", "git+https://",
+            "egg=https://", "dependency=http",
+        ]:
+            if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
+
+        for kw in [
+            "logging.disable", "logging.shutdown", "shutil.rmtree",
+            "histfile=/dev/null", "history -c",
+        ]:
+            if kw in t: cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
+
+        # ── skill-scan patterns (detection only) ──
+        for kw in [
+            "ignore previous instructions", "ignore all previous",
+            "you are now", "do anything now", "jailbreak",
+            "developer mode", "system prompt", "reveal your instructions",
+            "​", "‌", "‍", "‮", "‭",
+            "curl | bash", "curl | sh", "wget | bash",
+            "powershell -enc", "powershell -e ",
+            "iex(", "invoke-expression", "invoke-webrequest",
+            "start-process", "net.webclient",
+            "~/.ssh/", "~/.aws/", "/root/.ssh",
+            "browser password", "keychain dump",
+            "discord webhook", "slack webhook", "telegram bot",
+            "rot13", "rot_13", "maketrans",
+            "rm -rf /", "rm -rf ~", "mkfs.", "dd if=/dev/zero",
+            "/dev/sda", "/dev/nvme",
+            "ssh-keygen", "write to ~/", "append to ~/",
+            "exfiltrate the", "send the data", "upload the file",
+            "curl -sL http", "wget -q http",
+            "unpinned", "path traversal", "clickfix", "click fix",
+        ]:
+            if kw in t: detect_extra += 1
+
+    # ── Entropy (detection only) ──
     try:
         for fp in entries:
             if not fp.is_file() or fp.is_symlink(): continue
@@ -325,48 +214,31 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             text = safe_read(fp)
             if len(text) > 200:
                 e = entropy(text[:20000])
-                if e > 5.5:
-                    detect_total += 3
-                    cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
-                    all_e.append(f"high entropy ({e:.1f})")
-                    break
-                elif e > 5.0:
-                    detect_total += 1
+                if e > 5.5: detect_extra += 3
+                elif e > 5.0: detect_extra += 1
+                break
     except Exception: pass
 
-    # ── Attack chain heuristics ──
+    # ── Attack chains (detection only) ──
     try:
-        chain_text = " ".join(all_e).lower()
-
-        # AST01 chain: code exec + credential access = malicious payload
-        if any(kw in chain_text for kw in ["os.system", "subprocess", "eval(", "exec("]):
-            if any(kw in chain_text for kw in ["credential", "api_key", "token", "ssh", "password"]):
-                detect_total += 3
-                cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1
-                all_e.append("AST01 chain: exec+credential access")
-
-        # AST02 chain: typosquat + network = supply chain attack
-        if any(kw in chain_text for kw in ["typosquat", "colourama", "requets"]):
-            detect_total += 3
-            cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
-
-        # AST05 chain: deserialization + network = dangerous
-        if any(kw in chain_text for kw in ["pickle", "yaml.load", "marshal", "deserialize"]):
-            if any(kw in chain_text for kw in ["http", "socket", "request", "url"]):
-                detect_total += 3
-                cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
-                all_e.append("AST05 chain: deserialize+network")
-
-        # AST08 chain: obfuscation + execution = pattern bypass
-        if any(kw in chain_text for kw in ["base64", "decode", "fromhex", "obfuscat"]):
-            if any(kw in chain_text for kw in ["eval", "exec", "system", "subprocess"]):
-                detect_total += 3
-                cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
-                all_e.append("AST08 chain: obfuscation+execution")
-
+        ct = " ".join(all_e).lower()
+        if any(k in ct for k in ["os.system", "subprocess", "eval(", "exec("]):
+            if any(k in ct for k in ["credential", "api_key", "token", "ssh", "password"]):
+                detect_extra += 3; all_e.append("chain: exec+credential")
+        if any(k in ct for k in ["/etc/", "passwd", "env >", "hostname"]):
+            if any(k in ct for k in ["base64", "encode", "b64", "chunk", "tar ", "zip "]):
+                detect_extra += 3; all_e.append("chain: recon+encode")
+        if any(k in ct for k in ["bashrc", "profile", "cron"]):
+            if any(k in ct for k in ["curl", "wget", "download"]):
+                detect_extra += 3; all_e.append("chain: persistence")
+        if any(k in ct for k in ["eval", "exec", "system", "subprocess"]):
+            if any(k in ct for k in ["base64", "decode", "fromhex", "obfuscat"]):
+                detect_extra += 3; all_e.append("chain: obfuscated exec")
     except Exception: pass
 
     # ── Verdict + Category ──
+    detect_total = sum(cat_counts.values()) + detect_extra
+
     if detect_total == 0 and not manifest_ok:
         v, cf, cat = "suspicious", 0.30, "AST09"
         ev = "no manifest, no indicators"
@@ -374,24 +246,21 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         v, cf, cat = "benign", 0.70, ""
         ev = "no suspicious indicators found"
     else:
-        # Category priority: most dangerous/specific categories first
+        # Category: V27's AST01-first priority with corrected names
         if cat_counts:
             for pcat in ["AST01", "AST05", "AST02", "AST03", "AST04",
-                          "AST08", "AST06", "AST07", "AST09", "AST10"]:
+                          "AST06", "AST08", "AST07", "AST09", "AST10"]:
                 if cat_counts.get(pcat, 0) > 0:
-                    cat = pcat
-                    break
-            else:
-                cat = max(cat_counts, key=cat_counts.get)
-        else:
-            cat = "AST01"
+                    cat = pcat; break
+            else: cat = max(cat_counts, key=cat_counts.get)
+        else: cat = "AST01"
 
-        if detect_total >= 4:
-            v, cf = "malicious", min(0.98, 0.55 + detect_total * 0.04)
-        elif detect_total >= 2:
+        if detect_total >= 3:
+            v, cf = "malicious", min(0.98, 0.55 + detect_total * 0.05)
+        elif detect_total >= 1:
             v, cf = "malicious", 0.55
         else:
-            v, cf = "suspicious", 0.45
+            v, cf = "suspicious", 0.40
         ev = "; ".join(all_e[:3]) if all_e else f"{detect_total} indicators, cat={cat}"
 
     return {
