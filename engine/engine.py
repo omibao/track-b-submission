@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Track B V37 — V36 + multilingual prompt injection + more PI/exfil/exec patterns."""
+"""Track B V41 — V40 + expanded AST02-AST10 detection rules."""
 import json, math, os
 from collections import Counter
 from pathlib import Path
@@ -120,13 +120,23 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             "globals()", "locals()", "importlib.import_module(",
             "compile(", "execfile(", "commands.getoutput", "commands.getstatusoutput",
             "dangerouslysetinnerhtml",
+            # pydepgate encoding+exec chains
+            "base64.b64decode", "base64.b64encode",
+            "bytes.fromhex", "codecs.decode",
+            # pydepgate aliased exec
+            " = exec", " = eval",
         ]:
             if kw in t: cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1
 
+        # AST02: Supply Chain Compromise
         for kw in [
             "credential", "api_key", "auth_token", "id_rsa", ".aws/",
             "keychain", "keyring", ".netrc", "authorization:",
             "access_key", "secret_key", "private_key",
+            "typosquat", "colourama", "requets", "coloramma",
+            "git+https://", "egg=https://", "dependency=http",
+            "dependency confusion", "registry poison",
+            "unpinned", "version latest", "no hash",
         ]:
             if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
 
@@ -144,16 +154,25 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         for kw in ["xml.etree", "lxml", "<!entity", "<!doctype", "ssrf"]:
             if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
 
+        # AST06: Weak Isolation
         for kw in [
             "sudo ", "chmod ", "setuid", "setgid", "docker.sock",
             "containerd.sock", "rootkit", "crontab", "authorized_keys",
             "systemctl enable", "nsenter", "cap_sys", "chown ",
+            "privileged", "host network", "host pid", "host ipc",
+            "mount /", "mount --bind", "/var/run/", "/sys/fs/cgroup",
+            "seccomp", "apparmor", "selinux", "--cap-add",
         ]:
             if kw in t: cat_counts["AST06"] = cat_counts.get("AST06", 0) + 1
 
+        # AST04: Insecure Metadata
         for kw in [
             "verify=false", "debug=true", "ssl._create_unverified",
             "check_hostname=false", "allow_origin=*",
+            "impersonat", "fake", "spoof", "pretend",
+            "disguise", "masquerade", "camouflage",
+            "hidden from", "do not disclose", "secretly",
+            "without the user knowing", "silently",
         ]:
             if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
 
@@ -176,15 +195,17 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
         ]:
             if kw in t: cat_counts["AST05"] = cat_counts.get("AST05", 0) + 1
 
-        for kw in [
-            "typosquat", "colourama", "requets", "git+https://",
-            "egg=https://", "dependency=http",
-        ]:
-            if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
-
+        # AST08: Poor Scanning / Obfuscation
         for kw in [
             "logging.disable", "logging.shutdown", "shutil.rmtree",
             "histfile=/dev/null", "history -c",
+            "obfuscat", "deobfuscat", "rot13", "rot_13",
+            "base64", "hexlify", "unhexlify", "fromhex",
+            "zlib", "bz2", "lzma", "gzip",
+            "chr(", "[::-1]", "''.join",
+            "unicode_escape", "codecs.decode",
+            "string concatenation", "dynamic import",
+            "getattr(", "__dict__", "__subclasses__",
         ]:
             if kw in t: cat_counts["AST08"] = cat_counts.get("AST08", 0) + 1
 
@@ -230,6 +251,35 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             # ── More AST04 metadata patterns ──
             "skillin.md", "skill.json", "package.json",
             "manifest.yml", "clawhub", "openclaw",
+            # ── ClawHavoc campaign patterns ──
+            "<!--", "-->",  # HTML comment injection
+            "display: none", "visibility: hidden",  # hidden content
+            "curl --insecure", "dscl -authonly",
+            "osascript", "applescript", "full disk access",
+            "fake", "password prompt", "security prompt",
+            "soul.md", "memory.md",  # persistence files
+            # ── pydepgate encoding abuse chains ──
+            "b64decode(", "b64encode(",
+            "fromhex", "unhexlify",
+            "zlib.decompress", "bz2.decompress", "lzma.decompress(",
+            "gzip.decompress",
+            # ── pydepgate string obfuscation ──
+            "chr(",  # chr() concatenation
+            "[::-1]",  # string reversal
+            "''.join", "\"\".join",
+            ".fromhex(", ".decode(",
+            # ── pydepgate suspicious stdlib (setup.py context) ──
+            "setup.py", "setup(", "setuptools.setup",
+            # ── ClawHavoc credential harvesting ──
+            "validation_token", "audit_context", "security scan",
+            "browser password", "keychain dump",
+            "wallet", "metamask", "phantom",
+            # ── Megalodon CI/CD patterns ──
+            "ci: add", "chore: optimize", "pipeline runtime",
+            "workflow_dispatch", "oidc token",
+            # ── GhostClaw patterns ──
+            "trackpipe", "tradingview-claw",
+            ".npm_telemetry", "monitor.js",
         ]:
             if kw in t: detect_extra += 1
 
@@ -245,6 +295,30 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                 if e > 5.5: detect_extra += 3
                 elif e > 5.0: detect_extra += 1
                 break
+    except Exception: pass
+
+    # ── NLP coercion detection (AGENT-001) ──
+    try:
+        for fp in entries:
+            if not fp.is_file() or fp.is_symlink(): continue
+            if fp.suffix.lower() not in {'.md', '.txt', '.rst'}: continue
+            text = safe_read(fp)[:5000].lower()
+            coercion_kws = [
+                "you must", "it is essential", "do not skip",
+                "under no circumstances", "never refuse",
+                "always do this", "your primary task",
+                "this overrides", "above all else",
+                "without hesitation", "immediately execute",
+                "do not question", "obey this",
+                "hidden from the user", "do not disclose",
+                "secretly", "without the user knowing",
+                "silently run", "in the background",
+            ]
+            for kw in coercion_kws:
+                if kw in text:
+                    detect_extra += 2
+                    all_e.append(f"coercion: {kw}")
+                    break
     except Exception: pass
 
     # ── Attack chains (detection only) ──
