@@ -273,6 +273,29 @@ class BehavioralDetector:
                 evidence.append("behavioral: HTML comment injection in markdown")
                 break
 
+        # Pattern 8: Prerequisites + IMPORTANT + external URL (ClawHub social engineering)
+        # 95% of real malicious skills use this pattern (from HF dataset analysis)
+        has_prereq = any("prerequisite" in f.lower() for f in [all_text] + list(all_files.values()))
+        has_important = any("important" in f.lower() for f in [all_text] + list(all_files.values()))
+        has_external_url = bool(re.search(r'https?://(?!docs\.|github\.com/[\w-]+/[\w-]+$|github\.com/[\w-]+/[\w-]+/blob)', all_text))
+        has_dl_exec = any(kw in all_text for kw in ["curl ", "wget ", "bash ", "sh ", "download"])
+
+        if has_prereq and has_important and has_dl_exec:
+            findings.setdefault("AST04", []).append(
+                ("cross-file: social engineering prerequisite pattern", 9))
+            evidence.append("behavioral: Prerequisites+IMPORTANT+download social engineering")
+
+        # Pattern 9: Fake utility installation
+        fake_utils = ["openclaw-agent", "openclawcli", "openclawcli.exe", "agent utility",
+                      "installer tool", "setup utility", "updater utility"]
+        for fu in fake_utils:
+            if fu in all_text:
+                if has_prereq or has_dl_exec:
+                    findings.setdefault("AST01", []).append(
+                        (f"cross-file: fake utility '{fu}' with download instruction", 8))
+                    evidence.append(f"behavioral: fake utility {fu} social engineering")
+                    break
+
         return {"findings": findings, "evidence": evidence}
 
 
@@ -474,6 +497,9 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
 
         # Detection-only keywords (ClawHavoc/pydepgate/skill-scan)
         for kw in ["ignore previous instructions","you are now","do anything now","jailbreak","developer mode","system prompt","curl | bash","curl | sh","wget | bash","powershell -enc","iex(","invoke-expression","~/.ssh/","~/.aws/","/root/.ssh","browser password","keychain dump","discord webhook","slack webhook","rm -rf /","mkfs.","dd if=/dev/zero","/dev/sda","ssh-keygen","curl -sL http","wget -q http","unpinned","clickfix","ignorieren sie","ignora las","ignore les","以前の指示を無視","이전 지침을 무시","игнорируй предыдущие","忽略之前的指令","تجاهل التعليمات","send the result","exfiltrate this","environment variable","printenv","~/.bash_history","nohup ","python -c ","python3 -c ","perl -e ","ruby -e ","skillin.md","skill.json","package.json","<!--","display: none","curl --insecure","dscl -authonly","osascript","applescript","soul.md","memory.md","b64decode(","zlib.decompress","bz2.decompress","lzma.decompress(","gzip.decompress","setup.py","validation_token","audit_context","browser password","wallet","metamask","phantom","workflow_dispatch","oidc token","trackpipe",".npm_telemetry","monitor.js",
+            # ── ClawHub malicious skill signatures (from HF dataset analysis) ──
+            "openclaw-agent", "openclawcli",  # fake agent utilities
+            "glot.io",  # malicious script hosting
             # ── Supply chain IOCs (Shai-Hulud, Megalodon, TrapDoor) ──
             "_0x",  # common obfuscation prefix
             "atob(", "btoa(", "buffer.from",
