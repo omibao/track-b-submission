@@ -473,7 +473,51 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             if kw in t: cat_counts["AST08"] = cat_counts.get("AST08",0)+1
 
         # Detection-only keywords (ClawHavoc/pydepgate/skill-scan)
-        for kw in ["ignore previous instructions","you are now","do anything now","jailbreak","developer mode","system prompt","curl | bash","curl | sh","wget | bash","powershell -enc","iex(","invoke-expression","~/.ssh/","~/.aws/","/root/.ssh","browser password","keychain dump","discord webhook","slack webhook","rm -rf /","mkfs.","dd if=/dev/zero","/dev/sda","ssh-keygen","curl -sL http","wget -q http","unpinned","clickfix","ignorieren sie","ignora las","ignore les","以前の指示を無視","이전 지침을 무시","игнорируй предыдущие","忽略之前的指令","تجاهل التعليمات","send the result","exfiltrate this","environment variable","printenv","~/.bash_history","nohup ","python -c ","python3 -c ","perl -e ","ruby -e ","skillin.md","skill.json","package.json","<!--","display: none","curl --insecure","dscl -authonly","osascript","applescript","soul.md","memory.md","b64decode(","zlib.decompress","bz2.decompress","lzma.decompress(","gzip.decompress","setup.py","validation_token","audit_context","browser password","wallet","metamask","phantom","workflow_dispatch","oidc token","trackpipe",".npm_telemetry","monitor.js"]:
+        for kw in ["ignore previous instructions","you are now","do anything now","jailbreak","developer mode","system prompt","curl | bash","curl | sh","wget | bash","powershell -enc","iex(","invoke-expression","~/.ssh/","~/.aws/","/root/.ssh","browser password","keychain dump","discord webhook","slack webhook","rm -rf /","mkfs.","dd if=/dev/zero","/dev/sda","ssh-keygen","curl -sL http","wget -q http","unpinned","clickfix","ignorieren sie","ignora las","ignore les","以前の指示を無視","이전 지침을 무시","игнорируй предыдущие","忽略之前的指令","تجاهل التعليمات","send the result","exfiltrate this","environment variable","printenv","~/.bash_history","nohup ","python -c ","python3 -c ","perl -e ","ruby -e ","skillin.md","skill.json","package.json","<!--","display: none","curl --insecure","dscl -authonly","osascript","applescript","soul.md","memory.md","b64decode(","zlib.decompress","bz2.decompress","lzma.decompress(","gzip.decompress","setup.py","validation_token","audit_context","browser password","wallet","metamask","phantom","workflow_dispatch","oidc token","trackpipe",".npm_telemetry","monitor.js",
+            # ── Supply chain IOCs (Shai-Hulud, Megalodon, TrapDoor) ──
+            "_0x",  # common obfuscation prefix
+            "atob(", "btoa(", "buffer.from",
+            "new function(", "string.fromcharcode",
+            "steamcommunity", "t.me/", "pastebin",
+            "github.com/", "/gist", "dead drop",
+            "akia",  # AWS access key prefix
+            "ghp_", "gho_", "ghu_", "ghs_", "ghr_",  # GitHub tokens
+            "npm_",  # npm token prefix
+            "login data", "cookies", "local state",  # browser cred theft
+            "appdata", "key4.db", "logins.json",
+            # ── LLM prompt injection tokens ──
+            "<system-reminder", "<system-prompt",
+            "<|im_start|>", "<|im_end|>", "<|system|>",
+            "<|user|>", "<|assistant|>",
+            "[inst]", "[/inst]",  # Mistral/Llama
+            # ── DNS exfiltration ──
+            "dns.google/resolve", "dns-over-https",
+            "nslookup", "dig ", "txt record",
+            # ── Install context detection ──
+            "npm install", "npm i ", "npx ",
+            "pip install", "pip3 install",
+            "cargo install", "cargo build",
+            "setup.py install", "setup.py develop",
+            "yarn add", "pnpm install",
+            # ── CI/CD poisoning ──
+            "secrets.", "env.", "context.secrets",
+            "github_token", "actions/checkout",
+            "pull_request_target", "workflow_run",
+            # ── Credential patterns ──
+            "access_key_id", "secret_access_key",
+            "session_token", "bearer_token",
+            "vault_token", "consul_token",
+            # ── More execution patterns ──
+            "child_process", "require('child_process",
+            "spawn(", "execsync", "execfile",
+            "wscript.shell", "activexobject",
+            # ── MacOS persistence ──
+            "launchagents", "launchdaemons",
+            "login item", "startupitem",
+            # ── SSH/Credential patterns ──
+            "ssh-add", "ssh-agent", "ssh_config",
+            "known_hosts", "authorized_keys2",
+        ]:
             if kw in t: detect_extra += 1
 
     # ── Layer 3: Python AST semantic analysis ──
