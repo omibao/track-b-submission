@@ -131,15 +131,15 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             if kw in t: cat_counts["AST02"] = cat_counts.get("AST02", 0) + 1
 
         for kw in [
+            "169.254.169.254", "metadata.google.internal", "100.100.100.200",
+            "/etc/passwd", "/etc/shadow", "/etc/hosts",
+            "env >", "/proc/", "sendbeacon",
             "requests.post", "requests.put", "requests.send",
             "urllib.request", "socket.connect", "socket.send",
             "smtp", "ftp", "webhook", "curl ", "wget ",
-            "exfiltrat", "keylog", "169.254.169.254",
-            "metadata.google.internal", "100.100.100.200",
-            "/etc/passwd", "/etc/shadow", "/etc/hosts",
-            "env >", "/proc/", "sendbeacon",
+            "exfiltrat", "keylog",
         ]:
-            if kw in t: cat_counts["AST01"] = cat_counts.get("AST01", 0) + 1  # payloads
+            if kw in t: cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1  # over-privileged/exfil
 
         for kw in ["xml.etree", "lxml", "<!entity", "<!doctype", "ssrf"]:
             if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
@@ -153,10 +153,16 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
 
         for kw in [
             "verify=false", "debug=true", "ssl._create_unverified",
-            "check_hostname=false", "allow_origin=*", "password=",
-            "secret=", "api_key=", "token=",
+            "check_hostname=false", "allow_origin=*",
         ]:
             if kw in t: cat_counts["AST04"] = cat_counts.get("AST04", 0) + 1
+
+        for kw in [
+            "credential", "api_key", "auth_token",
+            "password=", "secret=", "token=",
+            "access_key", "secret_key", "private_key",
+        ]:
+            if kw in t: cat_counts["AST03"] = cat_counts.get("AST03", 0) + 1
 
         for kw in [
             "innerhtml", "document.write", "dangerouslysetinnerhtml",
