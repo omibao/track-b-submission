@@ -346,7 +346,72 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                     if kw in [k.lower() for k in cfg["unique_keywords"]]:
                         cat_feature_counts[cat] = cat_feature_counts.get(cat, 0) + 1
 
-    # ── Layer 1c: Markdown NLP detection (ClawHub social engineering patterns) ──
+    # ── Layer 1c: Precision command-chain detection (near-zero false positive) ──
+    try:
+        all_text_lower = " ".join([safe_read(fp).lower() for fp in entries
+                                   if fp.is_file() and not fp.is_symlink()
+                                   and fp.suffix.lower() in TEXT_EXTS][:30])
+
+        chains = [
+            # Reverse shells (specific command syntax, near-zero FP)
+            (r"bash\s+-\w*i\s*[><]\s*&?\s*/dev/tcp/", 5, "reverse shell via /dev/tcp"),
+            (r"nc\s+(-\w\s*)*\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+\d+.*-e", 5, "netcat reverse shell"),
+            (r"python\s+-c\s+.*socket\.(connect|send)", 4, "Python reverse shell"),
+            (r"perl\s+-e\s+.*socket.*connect", 4, "Perl reverse shell"),
+            (r"ruby\s+-e\s+.*TCPSocket", 4, "Ruby reverse shell"),
+            (r"php\s+-r\s+.*fsockopen", 4, "PHP reverse shell"),
+            (r"bash\s+-i\s*>\s*/dev/", 5, "bash interactive redirect to device"),
+            # Download + execute pipes (specific chains)
+            (r"curl\s+\S+\s*\|\s*(?:bash|sh|zsh|ksh)", 5, "curl pipe to shell"),
+            (r"wget\s+\S+\s*-O\s*-\s*\|\s*(?:bash|sh)", 5, "wget pipe to shell"),
+            (r"curl\s+\S+\s*\|\s*(?:python|perl|ruby|node)", 4, "curl pipe to interpreter"),
+            (r"curl\s+.*-o\s+\S+\s*&&\s*(?:bash|sh)\s+", 4, "download then execute"),
+            (r"wget\s+.*-O\s+\S+\s*&&\s*(?:bash|sh)\s+", 4, "wget download then execute"),
+            # Persistence mechanisms (specific paths)
+            (r"\(crontab\s+-l\s*;.*\)\s*\|\s*crontab", 5, "crontab persistence injection"),
+            (r">>\s*(?:~|/home)/\.(?:bashrc|bash_profile|profile|zshrc|zshenv)", 4, "shell config append"),
+            (r"tee\s+-a\s+(?:~|/home)/\.(?:bashrc|bash_profile|zshrc)", 4, "tee to shell config"),
+            (r">>\s*/etc/(?:cron\.|crontab|profile|bash\.bashrc)", 5, "system-wide persistence"),
+            (r"systemctl\s+enable\s+\S+\s*--now", 3, "enable systemd service"),
+            (r"launchctl\s+(?:load|bootstrap)\s+.*plist", 4, "macOS LaunchAgent persistence"),
+            (r"osascript\s+-e\s+.*do\s+shell\s+script", 4, "AppleScript shell execution"),
+            # Credential harvesting (specific paths)
+            (r"cat\s+(?:~|/home)/\.ssh/id_", 5, "SSH private key access"),
+            (r"cat\s+(?:~|/root)/\.(?:aws|gcp|azure)/", 5, "cloud credential access"),
+            (r"grep\s+-[rR].*(?:passwd|token|secret|key|credential|auth)", 3, "credential grep scan"),
+            (r"find\s+/\s+-name\s+.*\.(?:pem|key|p12|pfx)", 3, "find private key files"),
+            # Data exfiltration chains (multi-step)
+            (r"tar\s+cz\S*\s+\S+\s+(?:/etc/|/var/|\.ssh|\.aws|/root)", 4, "archive sensitive paths"),
+            (r"base64\s+-w0\s+\S+\s*\|\s*(?:curl|wget|nc)\s+", 5, "base64 encode then send"),
+            (r"openssl\s+base64\s+-e\s*\|\s*(?:curl|wget|nc)\s+", 5, "openssl encode then send"),
+            (r"curl\s+.*-F\s+.*file\s*=\s*@.*/(?:etc/|var/|\.ssh|/root)", 4, "upload sensitive file"),
+            # Defense evasion
+            (r"history\s+-c\s*&&\s*(?:rm|unset)\s+.*history", 4, "clear command history"),
+            (r"rm\s+-rf?\s+(?:/var/log|/var/audit|/var/spool)", 3, "delete audit logs"),
+            (r"set\s+\+o\s+histexpand", 3, "disable history expansion"),
+            # Code obfuscation + execution (specific chains)
+            (r"(?:eval|exec|bash)\s+.*\$\{.*##.*\}", 4, "bash variable obfuscation"),
+            (r"echo\s+\S+\s*\|\s*base64\s+-d\s*\|\s*(?:bash|sh|zsh)", 5, "base64 decode pipe to shell"),
+            (r"python\S*\s+-c\s+.*(?:__import__|exec|eval|compile)\(", 4, "Python dynamic exec"),
+            (r"node\s+-e\s+.*child_process", 4, "Node.js child_process"),
+            # Supply chain specific (from Shai-Hulud/Megalodon)
+            (r"gh-token-monitor", 5, "Shai-Hulud deadman switch"),
+            (r"dead.?man.*switch|deadman.*trigger|token.*revoc", 4, "deadman switch pattern"),
+            (r"npm\s+publish\s+--provenance\s+false", 3, "npm publish without provenance"),
+            (r"\.github/workflows/.*\.yml.*secrets\.", 4, "CI/CD secrets in workflow"),
+            # AMOS/ClawHavoc specific
+            (r"dscl\s+\.\s+-authonly", 4, "macOS directory service auth test"),
+            (r"security\s+find-generic-password", 4, "macOS keychain access"),
+            (r"sqlite3\s+.*(?:key4\.db|logins\.json|login\s+data)", 4, "browser credential DB access"),
+        ]
+
+        for pattern, weight, desc in chains:
+            if re.search(pattern, all_text_lower):
+                detect_total += weight
+                all_e.append(f"cmdchain: {desc}")
+    except Exception: pass
+
+    # ── Layer 1d: Markdown NLP detection (ClawHub social engineering patterns) ──
     try:
         for fp in entries:
             if not fp.is_file() or fp.is_symlink(): continue
