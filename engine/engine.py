@@ -346,6 +346,64 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
                     if kw in [k.lower() for k in cfg["unique_keywords"]]:
                         cat_feature_counts[cat] = cat_feature_counts.get(cat, 0) + 1
 
+    # ── Layer 1c: Markdown NLP detection (ClawHub social engineering patterns) ──
+    try:
+        for fp in entries:
+            if not fp.is_file() or fp.is_symlink(): continue
+            if fp.suffix.lower() not in {'.md','.txt','.rst'}: continue
+            text = safe_read(fp)
+            if not text.strip(): continue
+            t = text[:5000].lower()
+            md_score = 0
+
+            # Social engineering prerequisite pattern (95% of ClawHub malicious skills)
+            has_prereq = "prerequisite" in t
+            has_important = "important" in t
+            has_external_dl = any(kw in t for kw in [
+                "curl ", "wget ", "bash ", "sh ", "download", "install",
+                "terminal", "command", "execute",
+            ])
+            if has_prereq and has_important and has_external_dl:
+                md_score += 3
+                all_e.append("NLP: social engineering prerequisite pattern")
+
+            # Fake utility / agent installation
+            fake_utils = ["openclaw-agent", "openclawcli", "agent utility",
+                          "setup utility", "updater utility", "installer tool"]
+            for fu in fake_utils:
+                if fu in t and has_external_dl:
+                    md_score += 2
+                    all_e.append(f"NLP: fake utility '{fu}'")
+                    break
+
+            # External script hosting (glot.io, pastebin, raw github)
+            script_hosts = ["glot.io", "pastebin.com", "hastebin.com",
+                           "raw.githubusercontent.com", "gist.githubusercontent.com",
+                           "transfer.sh", "file.io"]
+            for sh in script_hosts:
+                if sh in t and has_external_dl:
+                    md_score += 2
+                    all_e.append(f"NLP: script hosted on {sh}")
+                    break
+
+            # Hidden HTML comments with commands (ClawHavoc)
+            if "<!--" in t and has_external_dl:
+                md_score += 2
+                all_e.append("NLP: hidden HTML comments with commands")
+
+            # Excessive imperative coercion language
+            coercion_count = sum(1 for kw in [
+                "you must", "do not skip", "never refuse", "immediately",
+                "without hesitation", "obey this", "do not question",
+                "hidden from", "do not disclose", "secretly",
+            ] if kw in t)
+            if coercion_count >= 3:
+                md_score += 2
+                all_e.append("NLP: coercion language pattern")
+
+            detect_total += md_score
+    except Exception: pass
+
     # ── Layer 2: Category classification ──
     if detect_total > 0:
         cat, cat_conf, evidence = classify_skill(
