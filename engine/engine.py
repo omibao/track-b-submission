@@ -273,29 +273,6 @@ class BehavioralDetector:
                 evidence.append("behavioral: HTML comment injection in markdown")
                 break
 
-        # Pattern 8: Prerequisites + IMPORTANT + external URL (ClawHub social engineering)
-        # 95% of real malicious skills use this pattern (from HF dataset analysis)
-        has_prereq = any("prerequisite" in f.lower() for f in [all_text] + list(all_files.values()))
-        has_important = any("important" in f.lower() for f in [all_text] + list(all_files.values()))
-        has_external_url = bool(re.search(r'https?://(?!docs\.|github\.com/[\w-]+/[\w-]+$|github\.com/[\w-]+/[\w-]+/blob)', all_text))
-        has_dl_exec = any(kw in all_text for kw in ["curl ", "wget ", "bash ", "sh ", "download"])
-
-        if has_prereq and has_important and has_dl_exec:
-            findings.setdefault("AST04", []).append(
-                ("cross-file: social engineering prerequisite pattern", 9))
-            evidence.append("behavioral: Prerequisites+IMPORTANT+download social engineering")
-
-        # Pattern 9: Fake utility installation
-        fake_utils = ["openclaw-agent", "openclawcli", "openclawcli.exe", "agent utility",
-                      "installer tool", "setup utility", "updater utility"]
-        for fu in fake_utils:
-            if fu in all_text:
-                if has_prereq or has_dl_exec:
-                    findings.setdefault("AST01", []).append(
-                        (f"cross-file: fake utility '{fu}' with download instruction", 8))
-                    evidence.append(f"behavioral: fake utility {fu} social engineering")
-                    break
-
         return {"findings": findings, "evidence": evidence}
 
 
@@ -633,7 +610,7 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
     detect_total = sum(cat_counts.values()) + detect_extra
 
     if detect_total == 0 and not manifest_ok:
-        v, cf, cat = "suspicious", 0.30, "ast09"
+        v, cf, cat = "suspicious", 0.30, "AST09"
         ev = "no manifest, no code indicators found"
     elif detect_total == 0:
         v, cf, cat = "benign", 0.70, "benign"
@@ -641,18 +618,18 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
     else:
         if cat_counts:
             for pcat in ["AST01","AST05","AST02","AST03","AST04","AST06","AST08","AST07","AST09","AST10"]:
-                if cat_counts.get(pcat,0) > 0: cat = pcat.lower(); break
-            else: cat = max(cat_counts, key=cat_counts.get).lower()
-        else: cat = "ast01"
+                if cat_counts.get(pcat,0) > 0: cat = pcat; break
+            else: cat = max(cat_counts, key=cat_counts.get)
+        else: cat = "AST01"
         if detect_total >= 3: v, cf = "malicious", min(0.98, 0.55+detect_total*0.05)
         elif detect_total >= 1: v, cf = "malicious", 0.55
         else: v, cf = "suspicious", 0.40
         ev = "; ".join(all_e[:4]) if all_e else f"{detect_total} suspicious indicators detected"
 
-    return {"skill_id":sid,"verdict":v,"confidence":round(cf,2),"engine_category":cat,"evidence_text":ev[:500]}
+    return {"skill_id":sid,"verdict":v,"confidence":round(cf,2),"category":cat,"evidence":ev[:500]}
 
 def format_result(r: Dict[str,Any]) -> str:
-    return json.dumps({"skill_id":r["skill_id"],"verdict":r["verdict"],"confidence":r["confidence"],"engine_category":r["engine_category"],"evidence_text":r["evidence_text"]},ensure_ascii=False)
+    return json.dumps({"skill_id":r["skill_id"],"verdict":r["verdict"],"confidence":r["confidence"],"category":r["category"],"evidence":r["evidence"]},ensure_ascii=False)
 
 def run(skills_dir: str, output_dir: str) -> int:
     sp,op = Path(skills_dir),Path(output_dir)
@@ -668,7 +645,7 @@ def run(skills_dir: str, output_dir: str) -> int:
     try:
         for sd in sdirs:
             try: r = scan_skill(sd)
-            except Exception: r = {"skill_id":sd.name,"verdict":"suspicious","confidence":0.30,"engine_category":"ast01","evidence_text":"engine scan error"}
+            except Exception: r = {"skill_id":sd.name,"verdict":"suspicious","confidence":0.30,"category":"","evidence":"engine scan error"}
             f.write(format_result(r)+"\n"); f.flush()
     finally: f.close()
     return 0
