@@ -206,18 +206,10 @@ def classify_skill(cat_feature_counts: Dict[str, int],
     best_cat = max(scores, key=scores.get)
     best_score = scores[best_cat]
 
-    # Generate natural language evidence (Layer 3)
+    # Generate evidence focused ONLY on primary classification (no cross-category mentions)
     cfg = CATEGORY_FEATURES[best_cat]
     det = details.get(best_cat, "suspicious patterns detected")
     evidence = cfg["evidence_template"].format(details=det)
-
-    # Add supporting detail from other categories
-    other_cats = [(c, s) for c, s in scores.items() if c != best_cat and s > 0.3]
-    if other_cats:
-        other_str = ", ".join(f"{c} ({CATEGORY_FEATURES[c]['name']})"
-                             for c, _ in sorted(other_cats, key=lambda x: -x[1])[:2])
-        evidence += f" Secondary indicators also present: {other_str}."
-
     return best_cat, best_score, evidence
 
 
