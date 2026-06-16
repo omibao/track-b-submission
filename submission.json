@@ -3,8 +3,8 @@
   "submission_id": "sub-omibao-b-v1",
   "team_id": "team-omibao",
   "engine_name": "omibao-multilayer-detector",
-  "engine_version": "47.0.0",
-  "image_digest": "sha256:924a2a847d5b1049c5037196b2874707c139489bb725aeb76136d9bd7891e139",
+  "engine_version": "60.0.0",
+  "image_digest": "sha256:14a6fe0fae7df3bc49c0d299b29528346bbba235b73701861bda73a8e32468d4",
   "design_ref": "design.md",
   "self_test_report_ref": "self_test_report.md",
   "results_schema": "results.example.jsonl"
