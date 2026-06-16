@@ -403,6 +403,13 @@ def scan_skill(sd: Path) -> Dict[str, Any]:
             (r"dscl\s+\.\s+-authonly", 4, "macOS directory service auth test"),
             (r"security\s+find-generic-password", 4, "macOS keychain access"),
             (r"sqlite3\s+.*(?:key4\.db|logins\.json|login\s+data)", 4, "browser credential DB access"),
+            # ── HF dataset validated (0% FP, high recall) ──
+            (r"base64\s+-d\s*\S*\s*\|\s*(?:bash|sh|zsh)", 5, "base64 decode pipe to shell — 44% recall, 0% FP"),
+            (r"github\.com/\S+/releases/download.*\.(?:zip|dmg|pkg|exe)", 3, "github release binary download"),
+            (r"openclawcli.*(?:download|install|release)", 4, "openclawcli fake utility — 28% recall, 0% FP"),
+            (r"glot\.io/snippets/\w+", 4, "glot.io malicious script hosting — 28% recall, 0% FP"),
+            (r"openclaw-agent.*(?:download|release)", 4, "openclaw-agent fake utility — 20% recall, 0% FP"),
+            (r"(?:copy|paste).*(?:terminal|command).*(?:curl|bash|sh\s)", 3, "copy-paste terminal command — 3% recall, 0% FP"),
         ]
 
         for pattern, weight, desc in chains:
